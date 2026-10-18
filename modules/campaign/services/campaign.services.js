@@ -3,7 +3,10 @@ const CampaignPerks = require("../model/campaignPerks.model")
 const CampaignProducts = require("../model/campaignProducts.model")
 const CampaignPages = require("../model/campaignPage.model")
 const Perks = require("../../perks/model/perk.model")
-const uploadToCloudinary = require("../../../utils/uploadToCloudinary")
+const {
+    uploadToCloudinary,
+    deleteFromCloudinary,
+} = require("../../../services/cloudinaryService");
 
 
 async function isCampaignExist(campaignId) {
@@ -14,57 +17,112 @@ async function isCampaignExist(campaignId) {
     return true
 }
 
-const createCampaignService = async (accountId, campaignName, startDate, endDate, perks, media, mediaType, mediaUrl, file, status, session) => {
-    // campaign Name must be unique
-    const isCampaignExist = await Campaigns.findOne({ campaignName }).session(session)
+const createCampaignService = async (
+    accountId,
+    campaignName,
+    startDate,
+    endDate,
+    perks = [],
+    media,
+    mediaType,
+    mediaUrl,
+    file,
+    status,
+    session
+) => {
+    // Campaign name must be unique.
+    const isCampaignExist = await Campaigns.findOne({
+        campaignName,
+    }).session(session);
+
     if (isCampaignExist) {
-        const error = new Error(`"${campaignName}" is not available, name already used.`);
+        const error = new Error(
+            `"${campaignName}" is not available, name already used.`
+        );
         error.statusCode = 400;
         throw error;
     }
 
-    // validate uploaded file
-    if (!mediaUrl && (["audio", "video", "image", "document"].includes(mediaType) && !file)) {
+    // Validate that required media is provided.
+    if (
+        !mediaUrl &&
+        ["audio", "video", "image", "document"].includes(mediaType) &&
+        !file
+    ) {
         const error = new Error("Media file is missing");
         error.statusCode = 400;
         throw error;
     }
 
-    // validate perks existence
-    for (let count = 0; count < perks.length; count++) {   // perks = ["perkId1", "perkId2", ...,"perkIdn"]
-        const isPerkExist = await Perks.findOne({ _id: perks[count], artistId: accountId }).session(session)
+    // Validate perk ownership and existence.
+    for (let count = 0; count < perks.length; count++) {
+        const isPerkExist = await Perks.findOne({
+            _id: perks[count],
+            artistId: accountId,
+        }).session(session);
+
         if (!isPerkExist) {
-            const error = new Error(`Perk of Id ${perks[count]} does not exist`)
-            error.statusCode = 400
-            throw error
+            const error = new Error(
+                `Perk of Id ${perks[count]} does not exist`
+            );
+            error.statusCode = 400;
+            throw error;
         }
     }
 
-    // upload media to cdn
-    let fileUrl
-    if (mediaType != "link") {
-        const uploaded = await uploadToCloudinary(file)
-        fileUrl = uploaded.secure_url   //upload to cloudinary
-        console.log({ uploaded })
+    let uploaded;
+
+    try {
+        // Upload a file unless this is a link campaign.
+        if (mediaType !== "link" && file) {
+            uploaded = await uploadToCloudinary(file, "intelimerch/campaigns");
+        }
+
+        // Create campaign.
+        const [newCampaign] = await Campaigns.create(
+            [
+                {
+                    artistId: accountId,
+                    campaignName,
+                    startDate,
+                    endDate,
+                    mediaType,
+                    fileUrl: uploaded?.url || mediaUrl,
+                    filePublicId: uploaded?.publicId,
+                    fileResourceType: uploaded?.resourceType,
+                    status,
+                },
+            ],
+            { session }
+        );
+
+        // Associate perks with the campaign.
+        const campaignPerks = await createCampaignPerks(
+            perks,
+            newCampaign._id,
+            session
+        );
+
+        return [newCampaign, campaignPerks];
+    } catch (error) {
+        // Remove the uploaded asset if subsequent database operations fail.
+        if (uploaded?.publicId && uploaded?.resourceType) {
+            try {
+                await deleteFromCloudinary(
+                    uploaded.publicId,
+                    uploaded.resourceType
+                );
+            } catch (cleanupError) {
+                console.error(
+                    "Failed to clean up Cloudinary campaign media:",
+                    cleanupError
+                );
+            }
+        }
+
+        throw error;
     }
-
-
-    // create campaign
-    const [newCampaign] = await Campaigns.create([{
-        artistId: accountId,
-        campaignName,
-        startDate,
-        endDate,
-        mediaType,
-        fileUrl: fileUrl || mediaUrl,
-        status
-    }], { session });
-
-    // create campaign perks
-    const campaignPerks = await createCampaignPerks(perks, newCampaign._id, session)
-
-    return [newCampaign, campaignPerks]
-}
+};
 
 const createCampaignPageService = async (accountId, campaignId, pageStructure) => {
     if (!(await Campaigns.findOne({ _id: campaignId, artistId: accountId }))) {

@@ -1,3 +1,5 @@
+// models/Campaigns.js
+
 const mongoose = require("mongoose");
 
 const campaignSchema = new mongoose.Schema(
@@ -34,46 +36,56 @@ const campaignSchema = new mongoose.Schema(
         fileUrl: {
             type: String,
             trim: true,
-            required: false
+            required: false,
         },
 
-        // ===Analytics Starts===
-        tapCount: {  // measures how many times the tags for this campaign has been tapped, regardless of whether the tap was successful or not
+        filePublicId: {
+            type: String,
+            required: false,
+        },
+
+        fileResourceType: {
+            type: String,
+            enum: ["image", "video", "raw"],
+            required: false,
+        },
+
+        // Analytics
+        tapCount: {
             type: Number,
-            default: 0
+            default: 0,
         },
 
         tagCount: {
             type: Number,
-            default: 0
+            default: 0,
         },
 
-        scanCount: {  //measures successful scans only i.e scans that leads to page access
+        scanCount: {
             type: Number,
-            default: 0
+            default: 0,
         },
 
         claims: {
             type: Number,
-            default: 0
+            default: 0,
         },
 
         conversionRate: {
             type: Number,
-            default: 0
+            default: 0,
         },
 
         productsLinked: {
             type: Number,
-            default: 0
+            default: 0,
         },
-        // ===Analytics Ends===
 
         status: {
             type: String,
             enum: ["draft", "active", "paused"],
             default: "draft",
-        }
+        },
     },
     {
         timestamps: true,

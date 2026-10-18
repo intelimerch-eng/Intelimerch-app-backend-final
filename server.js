@@ -6,10 +6,12 @@ const express = require("express");
 const cors = require("cors");
 const errorMiddleware = require("./middleware/error.middleware");
 const routes = require("./routes/index");
+const uploadRoutes = require("./routes/uploadRoutes");
 const connectDB = require("./config/database");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./config/swagger");
-  
+
+
 const dns = require("dns");
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
@@ -23,6 +25,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/api/v1/", routes);
+app.use("/api/v1", uploadRoutes);
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get("/", (req, res) => res.write("Welcome to Intelimerch"));
 app.use(errorMiddleware); // should remain last element on the list

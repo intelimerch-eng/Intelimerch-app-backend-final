@@ -4,6 +4,15 @@ Email integration,
 Final Review and Correction
 
 
+8. Before testing
+Test these cases in order:
+1. Create a campaign with an image.
+2. Create one with audio.
+3. Create one with a link and no file.
+4. Create one with multiple perks.
+5. Submit an invalid perk ID and verify the campaign is not created.
+6. Force a database failure after upload and verify the Cloudinary asset is cleaned up.
+
 product = {
     artistId,
     name,

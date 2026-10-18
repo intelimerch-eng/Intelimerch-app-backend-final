@@ -1,3 +1,5 @@
+// validations/campaignValidation.js
+
 const Joi = require("joi");
 
 const createCampaignSchema = Joi.object({
@@ -28,10 +30,11 @@ const createCampaignSchema = Joi.object({
         .uri()
         .optional(),
 
-
     status: Joi.string()
         .valid("draft", "active", "paused")
         .default("draft"),
 });
 
-module.exports = { createCampaignSchema };
+module.exports = {
+    createCampaignSchema,
+};

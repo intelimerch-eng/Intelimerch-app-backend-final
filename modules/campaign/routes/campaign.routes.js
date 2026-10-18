@@ -1,11 +1,35 @@
 const express = require('express');
 const router = express.Router();
-const { createCampaign, createCampaignPage, getCampaigns, deleteCampaign} = require('../controller/campaign.controller');
+const { createCampaign, createCampaignPage, getCampaigns, deleteCampaign } = require('../controller/campaign.controller');
 const auth = require("../../../middleware/auth.middleware")
 const validate = require("../../../middleware/validate")
 const upload = require("../../../middleware/upload.middleware")
 const { createCampaignSchema } = require("../../../validators/campaign.validator")
 
+
+const normalizeCampaignBody = (req, res, next) => {
+    try {
+        const { perks } = req.body;
+
+        if (perks === undefined || perks === null || perks === "") {
+            req.body.perks = [];
+        } else if (typeof perks === "string") {
+            try {
+                const parsed = JSON.parse(perks);
+                req.body.perks = Array.isArray(parsed) ? parsed : [parsed];
+            } catch {
+                // Supports a single perk ID sent as a string.
+                req.body.perks = [perks];
+            }
+        } else if (!Array.isArray(perks)) {
+            req.body.perks = [perks];
+        }
+
+        next();
+    } catch (error) {
+        next(error);
+    }
+};
 
 
 /**
@@ -100,7 +124,7 @@ const { createCampaignSchema } = require("../../../validators/campaign.validator
  *         description: Internal server error occurred while creating the campaign.
  */
 // create campaign
-router.post("/", auth, validate(createCampaignSchema), upload.single("media"), createCampaign)
+router.post("/", auth, upload.single("media"), normalizeCampaignBody, validate(createCampaignSchema), createCampaign)
 
 
 /**
