@@ -17,7 +17,7 @@ const emailTemplate = ({ title, message }) => `
           />
         </div>
 
-        <h2 style="color: #1f2937; font-size: 22px; text-align:center; margin-bottom: 16px;">
+        <h2 style="color: #1f2937; font-size: 22px; margin-bottom: 16px;">
           ${title}
         </h2>
 
@@ -35,5 +35,6 @@ const emailTemplate = ({ title, message }) => `
     </body>
   </html>
 `;
+
 
 module.exports = { emailTemplate };

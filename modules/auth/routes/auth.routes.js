@@ -1,7 +1,7 @@
 const express = require("express")
 const router = express.Router()
 const auth = require("../../../middleware/auth.middleware")
-const { registerArtist, login, createRole, getRoles, registerInternalTeam, profile, logout, requestPasswordReset } = require("../controllers/auth.controller")
+const { registerArtist, login, verifyEmail, createRole, getRoles, registerInternalTeam, profile, logout, requestPasswordReset, verifyPasswordResetOTP, resetPassword } = require("../controllers/auth.controller")
 const validate = require("../../../middleware/validate")
 const { forgotPasswordSchema } = require("../../../validators/forgotPasswordSchema.validator")
 
@@ -263,7 +263,6 @@ router.post("/create-role", auth, createRole)
 //get roles
 router.get("/get-roles", auth, getRoles)
 
-
 /**
  * @swagger
  * /auth/login:
@@ -303,9 +302,60 @@ router.get("/get-roles", auth, getRoles)
  *       500:
  *         description: something went wrong
  */
-
 //login
 router.post("/login", login)  //login for both artist and internal team.
+
+
+/**
+ * @swagger
+ * /auth/confirm-email:
+ *   post:
+ *     summary: Confirm email address
+ *     description: Verifies a user's email address using the OTP sent to their email and updates their account confirmation status.
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: artist@example.com
+ *               otp:
+ *                 type: string
+ *                 example: "048219"
+ *                 description: The OTP sent to the user's email address.
+ *     responses:
+ *       200:
+ *         description: Email confirmation successful.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Email confirmation successful
+ *       400:
+ *         description: Invalid or expired OTP, or invalid request data.
+ *       404:
+ *         description: Account not found.
+ *       500:
+ *         description: Internal server error.
+ */
+router.post("/confirm-email", verifyEmail);
+
+router.post("/confirm-email", verifyEmail)
 
 /**
  * @swagger
@@ -360,21 +410,12 @@ router.post("/logout", logout)
 
 /**
  * @swagger
- * /auth/forgot-password:
+ * /auth/forgot-password/request-otp:
  *   post:
  *     summary: Request password reset OTP
- *     description: |
- *       Initiates the password reset process for Artists and Internal Team accounts.
- *
- *       If the supplied email belongs to a valid account, a 6-digit OTP is
- *       generated and sent to the registered email address.
- *
- *       For security reasons, the API always returns the same response even if
- *       the email does not exist.
- *
+ *     description: Sends a password reset OTP to the supplied email address if an account exists.
  *     tags:
  *       - Auth
- *
  *     requestBody:
  *       required: true
  *       content:
@@ -387,11 +428,10 @@ router.post("/logout", logout)
  *               email:
  *                 type: string
  *                 format: email
- *                 example: "artist@example.com"
- *
+ *                 example: artist@example.com
  *     responses:
  *       200:
- *         description: Password reset request processed.
+ *         description: Request processed. An OTP is sent if an account exists.
  *         content:
  *           application/json:
  *             schema:
@@ -400,22 +440,134 @@ router.post("/logout", logout)
  *                 success:
  *                   type: boolean
  *                   example: true
- *
  *                 message:
  *                   type: string
- *                   example: "If an account exists with this email, an OTP has been sent."
- *
+ *                   example: If an account exists for this email, a password reset OTP has been sent.
  *       400:
- *         description: Validation failed.
- *
+ *         description: Email is required or invalid.
+ *       429:
+ *         description: Too many OTP requests.
  *       500:
  *         description: Internal server error.
  */
-router.post(
-    "/forgot-password",
-    validate(forgotPasswordSchema),
-    requestPasswordReset
-);
+router.post("/forgot-password/request-otp", requestPasswordReset);
+
+/**
+ * @swagger
+ * /auth/forgot-password/verify-otp:
+ *   post:
+ *     summary: Verify password reset OTP
+ *     description: Verifies the OTP and returns a short-lived reset token required to set a new password.
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: artist@example.com
+ *               otp:
+ *                 type: string
+ *                 example: "048219"
+ *                 description: The OTP received by email.
+ *     responses:
+ *       200:
+ *         description: OTP verified successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: OTP verified successfully
+ *                 resetToken:
+ *                   type: string
+ *                   description: Temporary token required to reset the password.
+ *                   example: a1b2c3d4e5f6
+ *                 expiresIn:
+ *                   type: integer
+ *                   description: Token validity in seconds.
+ *                   example: 600
+ *       400:
+ *         description: Missing email or OTP, or invalid or expired OTP.
+ *       429:
+ *         description: Too many verification attempts.
+ *       500:
+ *         description: Internal server error.
+ */
+router.post("/forgot-password/verify-otp", verifyPasswordResetOTP);
+
+/**
+ * @swagger
+ * /auth/forgot-password/reset:
+ *   post:
+ *     summary: Reset account password
+ *     description: Sets a new password using the short-lived reset token obtained after OTP verification. The token can only be used once.
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - resetToken
+ *               - newPassword
+ *               - confirmPassword
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: artist@example.com
+ *               resetToken:
+ *                 type: string
+ *                 description: Token returned by the OTP verification endpoint.
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 8
+ *                 example: NewSecurePassword123
+ *               confirmPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 8
+ *                 example: NewSecurePassword123
+ *     responses:
+ *       200:
+ *         description: Password reset successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Password reset successfully. You can now log in.
+ *       400:
+ *         description: Missing fields, passwords do not match, password too short, or reset token invalid or expired.
+ *       404:
+ *         description: Account not found.
+ *       500:
+ *         description: Internal server error.
+ */
+router.post("/forgot-password/reset", resetPassword);
 
 
 

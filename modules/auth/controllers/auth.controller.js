@@ -4,14 +4,15 @@ const Artists = require("../../artist/artist.model")
 const Accounts = require("../../auth/model/account.model")
 const InternalTeam = require("../../internalTeam/model/internalTeam.model")
 const Roles = require("../../internalTeam/model/role.model")
-const PasswordResetRequests = require("../model/PasswordResetRequests.model");
+const PasswordReset = require("../model/PasswordReset.model");
 const hashPassword = require("../../../shared/utils/hashPassword")
 const { generateJWT } = require("../../../shared/utils/JWT")
 const comparePassword = require("../../../shared/utils/comparePassword")
-const getAccount = require("../../../shared/getAccount")
+const { getAccount, updateAccount } = require("../../../shared/getAccount")
 const ACCOUNT = require("../../../shared/constants/account")
-const { sendEmail } = require("../../../utils/sendEmail");
+const { emailService } = require("../../../test-email")
 const validateObjectId = require("../../../utils/objectIdValidators");
+const { generateOTP, verifyOTP } = require("../../../utils/OTP")
 
 
 
@@ -84,6 +85,20 @@ const registerArtist = asyncHandler(async (req, res) => {
     const payload = { accountId: account._id, accountType: account.accountType }
     const accessToken = generateJWT(payload, "accessToken")
     const refreshToken = generateJWT(payload, "refreshToken")
+
+    const { otp, expiresAt } = await generateOTP(account.email, 6)
+    const remainingMinutes = Math.max(
+        0,
+        Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60))
+    );
+
+    const emailTo = account.email
+    const subject = "Welcome to Intelimerch"
+    const title = "Welcome to Intelimerch"
+    const message = `Your Intelimerch account has been successfully created. One last step — kindly verify your email. OTP: ${otp}. Note: OTP expires in ${remainingMinutes} minute${remainingMinutes === 1 ? "" : "s"}.`;
+
+
+    await emailService(emailTo, subject, title, message)
 
     return res.status(201).json({
         message: "Artist account created successfully",
@@ -370,6 +385,28 @@ const login = asyncHandler(async (req, res) => {
 
 })
 
+const verifyEmail = asyncHandler(async (req, res) => {
+    const { email, otp } = req.body
+    const { verified, message } = await verifyOTP(email, otp)
+    const account = await Accounts.findOne({ email })
+    const updateData = { isEmailConfirmed: true, emailConfirmedAt: new Date() }
+    const updatedAccount = await updateAccount(account._id, account.accountType, updateData)
+
+    const emailTo = email
+    const subject = "Email Confirmation Successful"
+    const title = "Email Confirmation Successful"
+    const emailMessage = `Your email address - ${email}, has being confirmed successfully`;
+
+
+    await emailService(emailTo, subject, title, emailMessage)
+
+    return res.status(200).json({
+        success: verified,
+        message: verified ? "Email confirmation successful" : "Email confirmation failed",
+    })
+
+})
+
 const profile = asyncHandler(async (req, res) => {
 
     const accountId = req.user.accountId
@@ -437,67 +474,155 @@ const logout = asyncHandler(async (req, res) => {
 
 })
 
+// STEP 1: Request OTP
 const requestPasswordReset = asyncHandler(async (req, res) => {
-    const { email } = req.body;
+    const email = req.body.email?.trim().toLowerCase();
+
+    if (!email) {
+        const error = new Error("Email is required");
+        error.statusCode = 400;
+        throw error;
+    }
 
     const account = await Accounts.findOne({ email });
 
-    // Always return same response to prevent email enumeration
-    if (!account) {
-        return res.status(200).json({
-            success: true,
-            message: "If an account exists with this email, an OTP has been sent."
-        });
+    // Avoid revealing whether an email is registered.
+    if (account) {
+        const { otp, expiresAt } = await generateOTP(email, 6);
+
+        const remainingMinutes = Math.max(
+            0,
+            Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 60000)
+        );
+
+        await emailService(
+            email,
+            "Password Reset OTP",
+            "Reset Your Password",
+            `Your password reset OTP is ${otp}. It expires in ${remainingMinutes} minutes. If you did not request this, ignore this email.`
+        );
     }
-
-    // Fans cannot reset password
-    if (account.accountType === ACCOUNT.TYPE.FAN) {
-        return res.status(200).json({
-            success: true,
-            message: "If an account exists with this email, an OTP has been sent."
-        });
-    }
-
-    // Invalidate previous requests
-    await PasswordResetRequests.updateMany(
-        {
-            accountId: account._id,
-            used: false
-        },
-        {
-            used: true
-        }
-    );
-
-    // Generate OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Hash OTP
-    const otpHash = crypto
-        .createHash("sha256")
-        .update(otp)
-        .digest("hex");
-
-    // Save request
-    await PasswordResetRequests.create({
-        accountId: account._id,
-        otp: otpHash,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
-    });
-
-    // Send email
-    const to = account.email
-    const subject = "Password Reset OTP"
-    const text = `<h2>Your OTP is ${otp}. It expires in 10 minutes.</b></h2>`
-    await sendEmail(to, subject, html)
 
     return res.status(200).json({
         success: true,
-        message: "If an account exists with this email, an OTP has been sent."
+        message: "If an account exists for this email, a password reset OTP has been sent.",
+    });
+});
+
+// STEP 2: Verify OTP and issue reset token
+const verifyPasswordResetOTP = asyncHandler(async (req, res) => {
+    const email = req.body.email?.trim().toLowerCase();
+    const { otp } = req.body;
+
+    if (!email || typeof otp !== "string" || !otp) {
+        const error = new Error("Email and OTP are required");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    await verifyOTP(email, otp);
+
+    const account = await Accounts.findOne({ email });
+
+    if (!account) {
+        const error = new Error("Invalid or expired OTP");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    // Generate a cryptographically random, single-use reset token.
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto
+        .createHash("sha256")
+        .update(resetToken)
+        .digest("hex");
+
+    // Invalidate any previously issued reset token for this email.
+    await PasswordReset.deleteMany({ email });
+
+    await PasswordReset.create({
+        email,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    return res.status(200).json({
+        success: true,
+        message: "OTP verified successfully",
+        resetToken,
+        expiresIn: 600,
+    });
+});
+
+// STEP 3: Reset password
+const resetPassword = asyncHandler(async (req, res) => {
+    const email = req.body.email?.trim().toLowerCase();
+    const { resetToken, newPassword, confirmPassword } = req.body;
+
+    if (!email || !resetToken || !newPassword || !confirmPassword) {
+        const error = new Error("All fields are required");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (newPassword.length < 8) {
+        const error = new Error("Password must be at least 8 characters");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    if (newPassword !== confirmPassword) {
+        const error = new Error("Passwords do not match");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const tokenHash = crypto
+        .createHash("sha256")
+        .update(resetToken)
+        .digest("hex");
+
+    const resetRecord = await PasswordReset.findOne({
+        email,
+        tokenHash,
+    });
+
+    if (!resetRecord || resetRecord.expiresAt.getTime() <= Date.now()) {
+        if (resetRecord) {
+            await PasswordReset.deleteOne({ _id: resetRecord._id });
+        }
+
+        const error = new Error("Invalid or expired reset token");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const account = await Accounts.findOne({ email });
+
+    if (!account) {
+        const error = new Error("Account not found");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    const hashedPassword = await hashPassword(newPassword);
+
+    account.password = hashedPassword;
+    await account.save();
+
+    // A reset token must never be reusable.
+    await PasswordReset.deleteOne({ _id: resetRecord._id });
+
+    return res.status(200).json({
+        success: true,
+        message: "Password reset successfully. You can now log in.",
     });
 });
 
 
 
 
-module.exports = { registerArtist, createRole, getRoles, registerInternalTeam, login, profile, logout, requestPasswordReset }
+
+
+
+module.exports = { registerArtist, createRole, getRoles, registerInternalTeam, login, verifyEmail, profile, logout, requestPasswordReset, verifyPasswordResetOTP, resetPassword }

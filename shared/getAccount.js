@@ -23,5 +23,34 @@ async function getAccount(accountId, accountType) {
 
 }
 
+async function updateAccount(accountId, accountType, updateData) {
+    let Model;
 
-module.exports = getAccount
+    if (accountType === ACCOUNT.TYPE.ARTIST) {
+        Model = Artists;
+    } else if (accountType === ACCOUNT.TYPE.INTERNAL_TEAM) {
+        Model = InternalTeam;
+    } else if (accountType === ACCOUNT.TYPE.FAN) {
+        Model = Fans;
+    } else {
+        throw new Error("Invalid account type");
+    }
+
+    const account = await Model.findOneAndUpdate(
+        { accountId },
+        { $set: updateData },
+        {
+            new: true,
+            runValidators: true,
+        }
+    );
+
+    if (!account) {
+        throw new Error("Account not found");
+    }
+
+    return account;
+}
+
+
+module.exports = { getAccount, updateAccount }
