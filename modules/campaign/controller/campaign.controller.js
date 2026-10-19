@@ -105,20 +105,38 @@ const createCampaign = asyncHandler(async (req, res) => {
 
 
 const createCampaignPage = asyncHandler(async (req, res) => {
-    const accountId = req.user.accountId
-    const { campaignId } = req.params
-    const { pageStructure } = req.body
+    const accountId = req.user.accountId;
+    const { campaignId } = req.params;
 
-    const campaignPage = await createCampaignPageService(accountId, campaignId, pageStructure)
+    let { pageStructure } = req.body;
+
+    if (typeof pageStructure === "string") {
+        try {
+            pageStructure = JSON.parse(pageStructure);
+        } catch {
+            const error = new Error(
+                "pageStructure must contain valid JSON."
+            );
+            error.statusCode = 400;
+            throw error;
+        }
+    }
+
+    const campaignPage = await createCampaignPageService(
+        accountId,
+        campaignId,
+        pageStructure,
+        req.files || []
+    );
 
     return res.status(201).json({
         success: true,
-        message: "Campaign page created",
+        message: "Campaign page created successfully.",
         data: {
-            campaignPage
-        }
-    })
-})
+            campaignPage,
+        },
+    });
+});
 
 
 const getCampaigns = asyncHandler(async (req, res) => {

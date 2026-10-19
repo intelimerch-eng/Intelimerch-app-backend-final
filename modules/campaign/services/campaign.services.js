@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Campaigns = require("../model/campaign.model")
 const CampaignPerks = require("../model/campaignPerks.model")
 const CampaignProducts = require("../model/campaignProducts.model")
@@ -124,20 +125,238 @@ const createCampaignService = async (
     }
 };
 
-const createCampaignPageService = async (accountId, campaignId, pageStructure) => {
-    if (!(await Campaigns.findOne({ _id: campaignId, artistId: accountId }))) {
-        const error = new Error("Campaign not found")
-        error.statusCode = 400
-        throw error
+const createCampaignPageService = async (
+    accountId,
+    campaignId,
+    pageStructure,
+    files = []
+) => {
+    const uploadedAssets = [];
+
+    try {
+        // 1. Validate campaign ID
+        if (!mongoose.Types.ObjectId.isValid(campaignId)) {
+            const error = new Error("Invalid campaign ID.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        // 2. Validate page structure
+        if (
+            !pageStructure ||
+            typeof pageStructure !== "object" ||
+            Array.isArray(pageStructure)
+        ) {
+            const error = new Error("A valid pageStructure is required.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        if (!Array.isArray(pageStructure.blocks)) {
+            const error = new Error(
+                "pageStructure.blocks must be an array."
+            );
+            error.statusCode = 400;
+            throw error;
+        }
+
+        // 3. Confirm campaign ownership
+        const campaign = await Campaigns.findOne({
+            _id: campaignId,
+            artistId: accountId,
+        });
+
+        if (!campaign) {
+            const error = new Error("Campaign not found.");
+            error.statusCode = 404;
+            throw error;
+        }
+
+        // 4. Prevent duplicate page creation
+        const existingPage = await CampaignPages.findOne({
+            campaignId,
+        });
+
+        if (existingPage) {
+            const error = new Error(
+                "A page already exists for this campaign."
+            );
+            error.statusCode = 409;
+            throw error;
+        }
+
+        // 5. Validate blocks and ensure block IDs are unique
+        const blockIds = new Set();
+
+        for (const block of pageStructure.blocks) {
+            if (
+                !block ||
+                typeof block.blockId !== "string" ||
+                !block.blockId.trim()
+            ) {
+                const error = new Error(
+                    "Every block must have a valid blockId."
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+
+            if (blockIds.has(block.blockId)) {
+                const error = new Error(
+                    `Duplicate blockId: ${block.blockId}`
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+
+            blockIds.add(block.blockId);
+
+            if (
+                ![
+                    "header",
+                    "text",
+                    "image",
+                    "video",
+                    "audio",
+                    "button",
+                    "footer",
+                ].includes(block.type)
+            ) {
+                const error = new Error(
+                    `Unsupported block type: ${block.type}`
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+
+            if (
+                block.content === undefined ||
+                block.content === null
+            ) {
+                const error = new Error(
+                    `Block ${block.blockId} requires content.`
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+        }
+
+        // 6. Validate uploaded file associations
+        const mediaTypes = new Set(["image", "video", "audio"]);
+        const filesByBlockId = new Map();
+
+        for (const file of files) {
+            const match = /^file_(.+)$/.exec(file.fieldname);
+
+            if (!match) {
+                const error = new Error(
+                    `Unexpected file field: ${file.fieldname}`
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+
+            const blockId = match[1];
+
+            if (!blockIds.has(blockId)) {
+                const error = new Error(
+                    `No page block exists for uploaded file: ${blockId}`
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+
+            const block = pageStructure.blocks.find(
+                (item) => item.blockId === blockId
+            );
+
+            if (!mediaTypes.has(block.type)) {
+                const error = new Error(
+                    `Block ${blockId} does not support file uploads.`
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+
+            if (filesByBlockId.has(blockId)) {
+                const error = new Error(
+                    `Multiple files were supplied for block ${blockId}.`
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+
+            // Validate the actual file MIME type against the block.
+            const matchesBlockType = {
+                image: file.mimetype.startsWith("image/"),
+                video: file.mimetype.startsWith("video/"),
+                audio: file.mimetype.startsWith("audio/"),
+            };
+
+            if (!matchesBlockType[block.type]) {
+                const error = new Error(
+                    `Uploaded file type does not match block ${blockId}.`
+                );
+                error.statusCode = 400;
+                throw error;
+            }
+
+            filesByBlockId.set(blockId, file);
+        }
+
+        // 7. Upload files and attach their metadata to blocks
+        for (const block of pageStructure.blocks) {
+            const file = filesByBlockId.get(block.blockId);
+
+            if (!file) continue;
+
+            const asset = await uploadToCloudinary(
+                file,
+                `intelimerch/campaign-pages/${campaignId}`
+            );
+
+            uploadedAssets.push(asset);
+
+            // Preserve existing block content.
+            const content =
+                typeof block.content === "object" &&
+                block.content !== null &&
+                !Array.isArray(block.content)
+                    ? block.content
+                    : {};
+
+            block.content = {
+                ...content,
+                url: asset.url,
+                publicId: asset.publicId,
+                resourceType: asset.resourceType,
+                originalName: asset.originalName,
+                format: asset.format,
+                bytes: asset.bytes,
+            };
+        }
+
+        // 8. Save using the agreed CampaignPages schema
+        const campaignPage = await CampaignPages.create({
+            campaignId,
+            pageStructure,
+        });
+
+        return campaignPage;
+    } catch (error) {
+        // 9. Compensate for failed database creation or later errors.
+        await Promise.allSettled(
+            uploadedAssets.map((asset) =>
+                deleteFromCloudinary(
+                    asset.publicId,
+                    asset.resourceType
+                )
+            )
+        );
+
+        throw error;
     }
-
-    const campaignPage = await CampaignPages.create({
-        campaignId,
-        pageStructure
-    })
-
-    return campaignPage
-}
+};
 
 async function createCampaignPerks(perkIds, campaignId, session) {
 

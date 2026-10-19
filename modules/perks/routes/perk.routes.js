@@ -8,6 +8,8 @@ const {
     deletePerk,
 } = require("../controller/perk.controllers");
 const auth = require("../../../middleware/auth.middleware");
+const upload = require("../../../middleware/upload.middleware")
+
 
 
 router.use(auth); // Apply authentication middleware to all routes in this router
@@ -24,31 +26,38 @@ router.use(auth); // Apply authentication middleware to all routes in this route
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             required:
  *               - perkName
  *               - perkCategoryId
  *               - contentType
+ *               - file
  *             properties:
  *               perkName:
  *                 type: string
+ *                 example: Exclusive Behind-the-Scenes Video
  *               perkCategoryId:
  *                 type: string
- *                 description: Perk Category ObjectId
+ *                 description: Perk Category MongoDB ObjectId
+ *                 example: 671a12345678901234567890
  *               contentType:
  *                 type: string
  *                 enum:
- *                   - image
+ *                   - audio
  *                   - video
- *                   - document
+ *                   - image
  *                   - link
- *               fileUrl:
+ *                   - document
+ *                 example: video
+ *               file:
  *                 type: string
- *                 description: URL of the uploaded file
+ *                 format: binary
+ *                 description: File to upload for the perk
  *               description:
  *                 type: string
+ *                 description: Optional description of the perk
  *     responses:
  *       201:
  *         description: Perk created successfully
@@ -56,14 +65,16 @@ router.use(auth); // Apply authentication middleware to all routes in this route
  *         description: |
  *           Possible errors:
  *           - Required fields missing
- *           - Invalid perk category
- *           - Invalid campaign
+ *           - Perk category does not exist
+ *           - No file attached
+ *           - Uploaded file type does not match contentType
+ *           - Unsupported file type
  *       401:
  *         description: Unauthorized
  *       500:
  *         description: Internal server error occurred creating perk
  */
-router.post("/", createPerk);
+router.post("/", upload.single("file"), createPerk);
 
 /**
  * @swagger

@@ -4,7 +4,7 @@ const Perks = require("../model/perk.model");
 const PerkCategory = require("../model/perkCategory.model")
 const Campaigns = require("../../campaign/model/campaign.model")
 const CampaignPerks = require("../../campaign/model/campaignPerks.model")
-const { getPerksService, assignPerkToCampaignService } = require("../services/perks.service")
+const { createPerkService, getPerksService, assignPerkToCampaignService } = require("../services/perks.service")
 const validateObjectId = require("../../../utils/objectIdValidators")
 
 
@@ -20,38 +20,29 @@ const createPerk = asyncHandler(async (req, res) => {
     } = req.body;
 
     if (!perkName || !perkCategoryId || !contentType) {
-        const error = new Error("Required fields missing");
+        const error = new Error("Required fields missing.");
         error.statusCode = 400;
         throw error;
     }
 
-    // validate perks categoryId
-    const isPerkCategoryValid = await PerkCategory.findById(perkCategoryId)
-    if (!isPerkCategoryValid) {
-        const error = new Error("Perk category does not exist");
+    if (!req.file) {
+        const error = new Error("A file is required.");
         error.statusCode = 400;
         throw error;
     }
 
-    const fileUrl = req.file?.path || req.fileUrl || req.body.fileUrl || null;
-    if (!fileUrl) {
-        const error = new Error("No file attached, file is required");
-        error.statusCode = 400;
-        throw error;
-    }
-
-    const perk = await Perks.create({
+    const perk = await createPerkService({
         artistId,
         perkName,
         perkCategoryId,
         contentType,
-        fileUrl,
         description,
+        file: req.file,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
         success: true,
-        message: "Perk created successfully",
+        message: "Perk created successfully.",
         data: perk,
     });
 });
