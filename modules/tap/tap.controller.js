@@ -58,6 +58,47 @@ const tap = asyncHandler(async (req, res) => {
   const artistId = NFCTag.artistId || tag.artistId || NFCTag.campaignId;
   const campaignId = NFCTag.campaignId || tag.campaignId;
 
+  // ── Returning fan on a brand-new tag ───────────────────────────────
+  // The device already holds a valid owner token, so we know which fan this
+  // is. Instead of showing the activation form again, bind the tag to that
+  // fan immediately and send them straight to their perks.
+  if (!isNFCActivated && requesterId) {
+    const existingFan = await Fans.findById(requesterId);
+
+    if (existingFan) {
+      await activateTag(
+        tagId,
+        existingFan._id,
+        { country, state, city: suburb },
+        req.body.deviceType
+      );
+
+      await tapTag({
+        tagId,
+        ownerId: existingFan._id,
+        success: true,
+        deviceType: req.body.deviceType,
+        tapType: "subsequent",
+        location: { country, state, city: suburb },
+        artistId,
+        campaignId,
+      });
+
+      // activateTag already incremented the tag's tapCount.
+      await Campaigns.findByIdAndUpdate(campaignId, {
+        $inc: { tapCount: 1, scanCount: 1, claims: 1 },
+      });
+
+      const tapToken = await generateJWT({ tagId }, "tapToken");
+
+      return res.status(200).json({
+        success: true,
+        message: "Tap successful, welcome back!",
+        tapToken,
+      });
+    }
+  }
+
   if (isNFCActivated && isOwnerValid) {
     const tapToken = await generateJWT({ tagId }, "tapToken");
 
