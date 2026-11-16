@@ -4,7 +4,10 @@ const Artists = require("../../artist/artist.model")
 const Accounts = require("../../auth/model/account.model")
 const InternalTeam = require("../../internalTeam/model/internalTeam.model")
 const Roles = require("../../internalTeam/model/role.model")
-const PasswordReset = require("../model/PasswordReset.model");
+// NOTE: the file is passwordReset.model.js (lowercase "p"). The previous
+// path (PasswordReset.model) did not resolve on case-sensitive filesystems
+// such as Render's, which prevented the service from booting at all.
+const PasswordReset = require("../model/passwordReset.model");
 const hashPassword = require("../../../shared/utils/hashPassword")
 const { generateJWT } = require("../../../shared/utils/JWT")
 const comparePassword = require("../../../shared/utils/comparePassword")
@@ -15,11 +18,38 @@ const validateObjectId = require("../../../utils/objectIdValidators");
 const { generateOTP, verifyOTP } = require("../../../utils/OTP")
 
 
+// ── Email normalisation ────────────────────────────────────────────
+// Accounts are stored lowercase, but records created before that rule
+// existed may still contain uppercase characters. Every lookup goes
+// through findAccountByEmail so both old and new rows resolve.
+
+const normaliseEmail = (value) =>
+    typeof value === "string" ? value.trim().toLowerCase() : value
+
+const escapeRegex = (value = "") =>
+    String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+// Returns a Mongoose query so callers can chain .select("+password").
+function findAccountByEmail(email) {
+    const normalised = normaliseEmail(email)
+
+    if (!normalised) {
+        return Accounts.findOne({ _id: null })
+    }
+
+    return Accounts.findOne({
+        email: { $regex: `^${escapeRegex(normalised)}$`, $options: "i" },
+    })
+}
+
+
 
 const registerArtist = asyncHandler(async (req, res) => {
 
     // collect req data
-    const { firstName, middleName, lastName, userName, email, phone, password } = req.body
+    const { firstName, middleName, lastName, userName, password } = req.body
+    const email = normaliseEmail(req.body.email)
+    const phone = typeof req.body.phone === "string" ? req.body.phone.trim() : req.body.phone
 
     // check for empty fields
     if (!firstName || !lastName || !userName || !phone || !email || !password) {
@@ -28,7 +58,7 @@ const registerArtist = asyncHandler(async (req, res) => {
         throw error
     }
 
-    const isEmailExist = await Accounts.findOne({ email })
+    const isEmailExist = await findAccountByEmail(email)
 
     if (isEmailExist) {
         const error = new Error("Email already registered with another account")
@@ -222,7 +252,9 @@ const registerInternalTeam = asyncHandler(async (req, res) => {
     }
 
     // collect req data
-    const { firstName, middleName, lastName, userName, email, phone, password, roleId } = req.body
+    const { firstName, middleName, lastName, userName, password, roleId } = req.body
+    const email = normaliseEmail(req.body.email)
+    const phone = typeof req.body.phone === "string" ? req.body.phone.trim() : req.body.phone
 
     // check for empty fields
     if (!firstName || !lastName || !userName || !phone || !email || !password || !roleId) {
@@ -238,7 +270,7 @@ const registerInternalTeam = asyncHandler(async (req, res) => {
         throw error
     }
 
-    const isEmailExist = await Accounts.findOne({ email })
+    const isEmailExist = await findAccountByEmail(email)
     if (isEmailExist) {
         const error = new Error("Email already registered with another account")
         error.statusCode = 400
@@ -311,8 +343,8 @@ const registerInternalTeam = asyncHandler(async (req, res) => {
 const login = asyncHandler(async (req, res) => {
 
     // collect data from req body
-    const email = req.body.email?.trim();
-    const phone = req.body.phone?.trim();
+    const email = normaliseEmail(req.body.email);
+    const phone = typeof req.body.phone === "string" ? req.body.phone.trim() : req.body.phone;
     const password = req.body.password;
 
     // check for empty fields
@@ -325,8 +357,7 @@ const login = asyncHandler(async (req, res) => {
     // validate data
     let account
     if (email) {
-        account = await Accounts.findOne({ email })
-            .select("+password")
+        account = await findAccountByEmail(email).select("+password")
     }
     else {
         account = await Accounts.findOne({ phone })
@@ -342,7 +373,11 @@ const login = asyncHandler(async (req, res) => {
 
 
     // compare password
-    if ((account.email == email || account.phone == phone) && (await comparePassword(password, account.password))) {
+    const identifierMatches =
+        Boolean(email && normaliseEmail(account.email) === email) ||
+        Boolean(phone && account.phone === phone)
+
+    if (identifierMatches && (await comparePassword(password, account.password))) {
 
         // reject login if account is closed
         if (account.accountStatus === ACCOUNT.STATUS.CLOSED) {
@@ -386,9 +421,17 @@ const login = asyncHandler(async (req, res) => {
 })
 
 const verifyEmail = asyncHandler(async (req, res) => {
-    const { email, otp } = req.body
+    const email = normaliseEmail(req.body.email)
+    const { otp } = req.body
     const { verified, message } = await verifyOTP(email, otp)
-    const account = await Accounts.findOne({ email })
+    const account = await findAccountByEmail(email)
+
+    if (!account) {
+        const error = new Error("Account not found")
+        error.statusCode = 404
+        throw error
+    }
+
     const updateData = { isEmailConfirmed: true, emailConfirmedAt: new Date() }
     const updatedAccount = await updateAccount(account._id, account.accountType, updateData)
 
@@ -476,7 +519,7 @@ const logout = asyncHandler(async (req, res) => {
 
 // STEP 1: Request OTP
 const requestPasswordReset = asyncHandler(async (req, res) => {
-    const email = req.body.email?.trim().toLowerCase();
+    const email = normaliseEmail(req.body.email);
 
     if (!email) {
         const error = new Error("Email is required");
@@ -484,7 +527,7 @@ const requestPasswordReset = asyncHandler(async (req, res) => {
         throw error;
     }
 
-    const account = await Accounts.findOne({ email });
+    const account = await findAccountByEmail(email);
 
     // Avoid revealing whether an email is registered.
     if (account) {
@@ -511,7 +554,7 @@ const requestPasswordReset = asyncHandler(async (req, res) => {
 
 // STEP 2: Verify OTP and issue reset token
 const verifyPasswordResetOTP = asyncHandler(async (req, res) => {
-    const email = req.body.email?.trim().toLowerCase();
+    const email = normaliseEmail(req.body.email);
     const { otp } = req.body;
 
     if (!email || typeof otp !== "string" || !otp) {
@@ -522,7 +565,7 @@ const verifyPasswordResetOTP = asyncHandler(async (req, res) => {
 
     await verifyOTP(email, otp);
 
-    const account = await Accounts.findOne({ email });
+    const account = await findAccountByEmail(email);
 
     if (!account) {
         const error = new Error("Invalid or expired OTP");
@@ -556,7 +599,7 @@ const verifyPasswordResetOTP = asyncHandler(async (req, res) => {
 
 // STEP 3: Reset password
 const resetPassword = asyncHandler(async (req, res) => {
-    const email = req.body.email?.trim().toLowerCase();
+    const email = normaliseEmail(req.body.email);
     const { resetToken, newPassword, confirmPassword } = req.body;
 
     if (!email || !resetToken || !newPassword || !confirmPassword) {
@@ -597,7 +640,7 @@ const resetPassword = asyncHandler(async (req, res) => {
         throw error;
     }
 
-    const account = await Accounts.findOne({ email });
+    const account = await findAccountByEmail(email);
 
     if (!account) {
         const error = new Error("Account not found");

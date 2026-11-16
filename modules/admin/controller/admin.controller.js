@@ -27,7 +27,9 @@ const registerStaff = asyncHandler(async (req, res) => {
         const user = req.user
 
         // get data
-        const { firstName, middleName, lastName, userName, email, phone, password, roleId } = req.body
+        const { firstName, middleName, lastName, userName, password, roleId } = req.body
+        const email = typeof req.body.email === "string" ? req.body.email.trim().toLowerCase() : req.body.email
+        const phone = typeof req.body.phone === "string" ? req.body.phone.trim() : req.body.phone
 
         const roleExists = await Roles.findById(roleId).session(session)
         if (!roleExists) {
@@ -36,7 +38,9 @@ const registerStaff = asyncHandler(async (req, res) => {
             throw error
         }
 
-        const isEmailExist = await Accounts.findOne({ email }).session(session)
+        const isEmailExist = await Accounts.findOne({
+            email: { $regex: `^${String(email).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+        }).session(session)
         if (isEmailExist) {
             const error = new Error("Email already registered with another account")
             error.statusCode = 400
@@ -120,9 +124,13 @@ const createCreator = asyncHandler(async (req, res) => {
     try {
         session.startTransaction()
         // collect req data
-        const { firstName, middleName, lastName, userName, email, phone, password } = req.body
+        const { firstName, middleName, lastName, userName, password } = req.body
+        const email = typeof req.body.email === "string" ? req.body.email.trim().toLowerCase() : req.body.email
+        const phone = typeof req.body.phone === "string" ? req.body.phone.trim() : req.body.phone
 
-        const isEmailExist = await Accounts.findOne({ email }).session(session)
+        const isEmailExist = await Accounts.findOne({
+            email: { $regex: `^${String(email).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+        }).session(session)
         if (isEmailExist) {
             const error = new Error("Email already registered with another account")
             error.statusCode = 400
