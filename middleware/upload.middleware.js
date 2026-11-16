@@ -14,6 +14,18 @@ const allowedMimeTypes = new Set([
   "video/webm",
   "video/quicktime",
 
+  // Audio (perk content type and campaign page audio blocks)
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/ogg",
+  "audio/aac",
+  "audio/webm",
+  "audio/flac",
+  "audio/x-flac",
+
   // PDFs
   "application/pdf",
 
