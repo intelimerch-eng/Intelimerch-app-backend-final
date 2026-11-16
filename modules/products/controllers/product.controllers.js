@@ -27,7 +27,8 @@ const createProduct = asyncHandler(async (req, res) => {
         color,
         size,
         campaignId,
-        productTier
+        productTier,
+        quantity
     } = req.body;
 
     const session = await mongoose.startSession()
@@ -35,7 +36,7 @@ const createProduct = asyncHandler(async (req, res) => {
     try {
         session.startTransaction()
 
-        const [product, campaignProduct, tag, tagLink] = await createProductService(artistId, productName, productType, productCode, description, color, size, campaignId, productTier, session)
+        const [product, campaignProduct, tag, tagLink, tags, tagLinks] = await createProductService(artistId, productName, productType, productCode, description, color, size, campaignId, productTier, quantity, session)
 
         await session.commitTransaction()
 
@@ -46,7 +47,9 @@ const createProduct = asyncHandler(async (req, res) => {
                 product,
                 campaignProduct,
                 tag,
-                tagLink
+                tagLink,
+                tags,
+                tagLinks
             }
         })
     }
@@ -70,7 +73,7 @@ const assignProductToCampaign = asyncHandler(async (req, res) => {   //variantId
 
         const { campaignId, tierId, variantId } = req.body;
 
-        const [campaignProduct, tag, tagLink] = await assignProductToCampaignServiceMain(artistId, productId, campaignId, tierId, variantId, session)
+        const [campaignProduct, tag, tagLink, tags, tagLinks] = await assignProductToCampaignServiceMain(artistId, productId, campaignId, tierId, variantId, session)
 
 
         await session.commitTransaction()
@@ -78,7 +81,7 @@ const assignProductToCampaign = asyncHandler(async (req, res) => {   //variantId
         res.status(200).json({
             success: true,
             message: "Product assigned to campaign successfully",
-            data: { campaignProduct, tag, tagLink }
+            data: { campaignProduct, tag, tagLink, tags, tagLinks }
         });
 
     }

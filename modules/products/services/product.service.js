@@ -10,12 +10,20 @@ const Campaigns = require("../../campaign/model/campaign.model")
 const campaignProducts = require("../../campaign/model/campaignProducts.model")
 const CampaignProducts = require("../../campaign/model/campaignProducts.model")
 const generateCode = require("../../../utils/generateCode")
-const { generateTag } = require("../../tags/tag.services")
+const { generateTag, generateTags } = require("../../tags/tag.services")
 const validateObjectId = require("../../../utils/objectIdValidators")
 
+// Units are stored on the product; one NFC tag is generated per unit at the
+// point the product is assigned to a campaign.
+function normaliseQuantity(quantity) {
+    const parsed = Number(quantity)
+    if (!Number.isInteger(parsed) || parsed < 1) return 1
+    return parsed
+}
 
 
-const createProductService = async (artistId, productName, productType, productCode, description, color, size, campaignId, productTier, session) => {
+
+const createProductService = async (artistId, productName, productType, productCode, description, color, size, campaignId, productTier, quantity, session) => {
     // create product code - TSH-001: productType and productCodeCounter
     // get product type or create one of does not exist
     let productTypeDoc
@@ -58,7 +66,8 @@ const createProductService = async (artistId, productName, productType, productC
             productName,
             description,
             productTypeId: productTypeDoc._id,
-            productCode: fullProductCode
+            productCode: fullProductCode,
+            quantity: normaliseQuantity(quantity)
         }],
         { session }
     )
@@ -100,6 +109,11 @@ const createProductService = async (artistId, productName, productType, productC
         }
 
         const tier = await Tiers.findOne({ name: productTier })
+        if (!tier) {
+            const error = new Error(`Tier "${productTier}" does not exist`)
+            error.statusCode = 400
+            throw error
+        }
         const tierId = tier._id
 
         const campaignProduct = await assignProductToCampaignService(newProduct._id, campaignId, tierId, session)
@@ -120,12 +134,22 @@ const createProductService = async (artistId, productName, productType, productC
         }
 
 
-        // create tag
-        const tag = await generateTag(campaignId, variant._id, tierId, session)
-        // tag link = {baseUrl/nfc/io/tag._id}
-        const tagLink = process.env.FRONTEND_BASE_URL + "/nfc/io/" + tag._id
+        // create one tag per unit
+        const tags = await generateTags(
+            campaignId,
+            variant._id,
+            tierId,
+            newProduct.quantity,
+            session
+        )
+        await Campaigns.findByIdAndUpdate(campaignId, { $inc: { tagCount: tags.length } }, { session })
 
-        return [newProduct, campaignProduct, tag, tagLink]
+        // tag link = {baseUrl/nfc/io/tag._id}
+        const tagLinks = tags.map(
+            (tag) => process.env.FRONTEND_BASE_URL + "/nfc/io/" + tag._id
+        )
+
+        return [newProduct, campaignProduct, tags[0], tagLinks[0], tags, tagLinks]
     }
 
     return [newProduct]
@@ -207,6 +231,45 @@ async function getArtistProductService(artistId, limit, skip) {
         {
             $match: { "product.artistId": new mongoose.Types.ObjectId(artistId) }
         },
+
+        // Campaigns this product is linked to. A product may appear in more
+        // than one campaign, so the Products table shows a count plus the
+        // names (used as the hover title).
+        {
+            $lookup: {
+                from: "campaign-products",
+                localField: "product._id",
+                foreignField: "product",
+                as: "campaignLinks"
+            }
+        },
+        {
+            $lookup: {
+                from: "campaigns",
+                localField: "campaignLinks.campaignId",
+                foreignField: "_id",
+                as: "campaignDocs"
+            }
+        },
+        {
+            $addFields: {
+                campaigns: {
+                    $map: {
+                        input: "$campaignDocs",
+                        as: "campaignDoc",
+                        in: {
+                            _id: "$$campaignDoc._id",
+                            campaignName: "$$campaignDoc.campaignName"
+                        }
+                    }
+                },
+                campaignCount: { $size: "$campaignDocs" }
+            }
+        },
+        {
+            $unset: ["campaignLinks", "campaignDocs"]
+        },
+
         {
             $facet: {
                 data: [
@@ -283,14 +346,22 @@ const assignProductToCampaignServiceMain = async (artistId, productId, campaignI
         }
     }
 
-    // create tag
-    const tag = await generateTag(campaignId, productVariant._id, tierId, session)
+    // create one tag per unit of the product
+    const tags = await generateTags(
+        campaignId,
+        productVariant._id,
+        tierId,
+        normaliseQuantity(product.quantity),
+        session
+    )
     // increament tacgount value in campaign
-    await Campaigns.findByIdAndUpdate(campaignId, { $inc: { tagCount: 1 } }, { session })
+    await Campaigns.findByIdAndUpdate(campaignId, { $inc: { tagCount: tags.length } }, { session })
     // tag link = {baseUrl/nfc/io/tag._id}
-    const tagLink = process.env.FRONTEND_BASE_URL + "/nfc/io/" + tag._id
+    const tagLinks = tags.map(
+        (tag) => process.env.FRONTEND_BASE_URL + "/nfc/io/" + tag._id
+    )
 
-    return [newCampaignProduct, tag, tagLink]
+    return [newCampaignProduct, tags[0], tagLinks[0], tags, tagLinks]
 }
 
 

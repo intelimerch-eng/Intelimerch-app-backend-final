@@ -31,6 +31,14 @@ const productSchema = new mongoose.Schema(
             trim: true,
             uppercase: true,
             unique: true,
+        },
+
+        // Units being produced. One NFC tag is generated per unit when the
+        // product is assigned to a campaign.
+        quantity: {
+            type: Number,
+            default: 1,
+            min: 1,
         }
     },
     {

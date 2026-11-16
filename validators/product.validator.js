@@ -32,6 +32,13 @@ const createProductSchema = joi.object({
 
     productTier: joi.string()  //collecting product tier name e.g "1"
         .length(1)
+        .optional(),
+
+    // Units being produced; one NFC tag is generated per unit when the
+    // product is assigned to a campaign.
+    quantity: joi.number()
+        .integer()
+        .min(1)
         .optional()
 })
 

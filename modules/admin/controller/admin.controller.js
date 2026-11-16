@@ -575,10 +575,11 @@ const createProduct = asyncHandler(async (req, res) => {
             color,
             size,
             campaignId,
-            productTier
+            productTier,
+            quantity
         } = req.body;
 
-        const [product, campaignProduct, tag, tagLink] = await createProductService(artistId, productName, productType, productCode, description, color, size, campaignId, productTier, session)
+        const [product, campaignProduct, tag, tagLink] = await createProductService(artistId, productName, productType, productCode, description, color, size, campaignId, productTier, quantity, session)
 
         // const activity = await logActivityService()
 

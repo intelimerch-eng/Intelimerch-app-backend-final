@@ -8,32 +8,48 @@ function mapDeviceType(deviceType) {
     return "unknown"
 }
 
-async function generateTag(campaignId, productVariantId, tierId, session) {
-    let tagCount
-    tagCount = await TagCounts.findOne().session(session)
+// Generates `quantity` sequential NFC tags in one go. One tag is produced per
+// unit of a product, so a batch of 50 hoodies yields NFC-001..NFC-050.
+async function generateTags(campaignId, productVariantId, tierId, quantity = 1, session) {
+    const total = Number.isInteger(quantity) && quantity > 0 ? quantity : 1
+
+    let tagCount = await TagCounts.findOne().session(session)
     if (!tagCount) {
         [tagCount] = await TagCounts.create([{}], { session })
     }
 
-    count = tagCount.nextNumber
-    const tagId = "NFC" + "-" + String(count).padStart(3, "0")
+    const firstNumber = tagCount.nextNumber
 
-    const tagData = {
-        tagId,
-        campaignId,
-        productVariantId,
-        tierId
+    const tagData = []
+    for (let index = 0; index < total; index++) {
+        tagData.push({
+            tagId: "NFC" + "-" + String(firstNumber + index).padStart(3, "0"),
+            campaignId,
+            productVariantId,
+            tierId
+        })
     }
 
-    const [tag] = await Tags.create([tagData], { session })
-    if (!tag) {
+    const tags = await Tags.create(tagData, { session })
+    if (!tags || tags.length !== total) {
         const error = new Error("Error occured creating tag")
         error.statusCode = 500
         throw error
     }
 
-    await TagCounts.findOneAndUpdate({ _id: tagCount._id }, { $inc: { nextNumber: 1 } }, { session })
+    // Reserve the numbers we just used in a single atomic step.
+    await TagCounts.findOneAndUpdate(
+        { _id: tagCount._id },
+        { $inc: { nextNumber: total } },
+        { session }
+    )
 
+    return tags
+}
+
+// Backwards-compatible single-tag helper.
+async function generateTag(campaignId, productVariantId, tierId, session) {
+    const [tag] = await generateTags(campaignId, productVariantId, tierId, 1, session)
     return tag
 }
 
@@ -86,4 +102,4 @@ async function disableTag(tagId) {
     return tag
 }
 
-module.exports = { generateTag, activateTag, retrieveTag, disableTag }
+module.exports = { generateTag, generateTags, activateTag, retrieveTag, disableTag }
