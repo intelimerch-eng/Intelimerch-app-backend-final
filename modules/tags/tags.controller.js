@@ -82,6 +82,7 @@ const getCampaignTags = asyncHandler(async (req, res) => {
 // get artist tagss
 const getArtistTags = asyncHandler(async (req, res) => {
     const artistId = req.user.accountId;
+    const { campaignId } = req.query;
 
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 20;
@@ -91,9 +92,28 @@ const getArtistTags = asyncHandler(async (req, res) => {
     const campaigns = await Campaigns.find({ artistId }).select("_id");
     const campaignIds = campaigns.map(c => c._id);
 
+    // Optional filter. "View Tags" from a campaign links here with ?campaignId=
+    // and this was ignored, so every campaign showed the artist's entire tag
+    // list — which makes two different campaigns look like they share a tag.
+    let campaignFilter = { $in: campaignIds };
+
+    if (campaignId) {
+        const ownsCampaign = campaignIds.some(
+            (id) => id.toString() === String(campaignId)
+        );
+
+        if (!ownsCampaign) {
+            const error = new Error("Campaign not found");
+            error.statusCode = 404;
+            throw error;
+        }
+
+        campaignFilter = campaignId;
+    }
+
     const [tags, total] = await Promise.all([
         Tags.find({
-            campaignId: { $in: campaignIds }
+            campaignId: campaignFilter
         })
             .populate({
                 path: "campaignId",
@@ -126,7 +146,7 @@ const getArtistTags = asyncHandler(async (req, res) => {
             .limit(limit),
 
         Tags.countDocuments({
-            campaignId: { $in: campaignIds }
+            campaignId: campaignFilter
         })
     ]);
 
@@ -148,6 +168,11 @@ const getArtistTags = asyncHandler(async (req, res) => {
         campaignId: tag.campaignId?._id || null,
 
         scans: tag.tapCount,
+
+        // Without this the UI fell back to "Not Linked" for every tag.
+        status: tag.status || "unassigned",
+
+        lastTappedAt: tag.lastTappedAt || null,
 
         tagId: tag.tagId
     }));
