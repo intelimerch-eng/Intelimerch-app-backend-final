@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createCampaign, createCampaignPage, getCampaigns, deleteCampaign } = require('../controller/campaign.controller');
+const { createCampaign, createCampaignPage, getCampaigns, deleteCampaign, getCampaignPerks, attachCampaignPerk, detachCampaignPerk } = require('../controller/campaign.controller');
 const auth = require("../../../middleware/auth.middleware")
 const validate = require("../../../middleware/validate")
 const upload = require("../../../middleware/upload.middleware")
@@ -355,6 +355,11 @@ router.post("/:campaignId/pages", auth, upload.any(), createCampaignPage)
  */
 // get artist campaigns
 router.get("/", auth, getCampaigns)
+
+// campaign perks — inspect, link and unlink after the campaign already exists
+router.get("/:campaignId/perks", auth, getCampaignPerks)
+router.post("/:campaignId/perks", auth, attachCampaignPerk)
+router.delete("/:campaignId/perks/:perkId", auth, detachCampaignPerk)
 
 // delete artist campaign 
 router.delete("/:campaignId", auth, deleteCampaign);

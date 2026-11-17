@@ -9,6 +9,7 @@ const Tiers = require("../../tier/tier.model")
 const generateTag = require("../../tags/tag.model")
 const throwError = require("../../../shared/utils/throwError")
 const { createCampaignService, createCampaignPageService, createCampaignPerks, getArtistCampaignsService } = require("../services/campaign.services");
+const { assignPerkToCampaignService } = require("../../perks/services/perks.service");
 const {
     deleteFromCloudinary,
 } = require("../../../services/cloudinaryService");
@@ -193,9 +194,89 @@ const deleteCampaign = asyncHandler(async (req, res) => {
 
 
 
+// ── Campaign perks ────────────────────────────────────────────────
+// A campaign only exposes the perks linked to it at creation. These endpoints
+// let a creator see what is linked and add or remove perks afterwards, which
+// was previously impossible: a perk created after the campaign could never be
+// attached to it.
+
+const getCampaignPerks = asyncHandler(async (req, res) => {
+    const accountId = req.user.accountId
+    const { campaignId } = req.params
+
+    const campaign = await Campaigns.findOne({ _id: campaignId, artistId: accountId })
+    if (!campaign) {
+        const error = new Error("Campaign not found")
+        error.statusCode = 404
+        throw error
+    }
+
+    const linkedPerks = await campaignPerks
+        .find({ campaignId })
+        .populate("perkId")
+
+    return res.status(200).json({
+        success: true,
+        message: "Campaign perks retrieved successfully.",
+        data: {
+            campaignId,
+            campaignName: campaign.campaignName,
+            perks: linkedPerks,
+        },
+    })
+})
+
+const attachCampaignPerk = asyncHandler(async (req, res) => {
+    const accountId = req.user.accountId
+    const { campaignId } = req.params
+    const { perkId } = req.body
+
+    if (!perkId) {
+        const error = new Error("perkId is required")
+        error.statusCode = 400
+        throw error
+    }
+
+    const campaignPerk = await assignPerkToCampaignService(accountId, perkId, campaignId)
+
+    return res.status(201).json({
+        success: true,
+        message: "Perk linked to campaign successfully.",
+        data: { campaignPerk },
+    })
+})
+
+const detachCampaignPerk = asyncHandler(async (req, res) => {
+    const accountId = req.user.accountId
+    const { campaignId, perkId } = req.params
+
+    const campaign = await Campaigns.findOne({ _id: campaignId, artistId: accountId })
+    if (!campaign) {
+        const error = new Error("Campaign not found")
+        error.statusCode = 404
+        throw error
+    }
+
+    const removed = await campaignPerks.findOneAndDelete({ campaignId, perkId })
+    if (!removed) {
+        const error = new Error("This perk is not linked to the campaign")
+        error.statusCode = 404
+        throw error
+    }
+
+    return res.status(200).json({
+        success: true,
+        message: "Perk removed from campaign successfully.",
+    })
+})
+
+
 module.exports = {
     createCampaign,
     createCampaignPage,
     getCampaigns,
-    deleteCampaign
+    deleteCampaign,
+    getCampaignPerks,
+    attachCampaignPerk,
+    detachCampaignPerk
 }

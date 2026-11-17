@@ -117,6 +117,9 @@ router.post("/", logUploadArrival, upload.single("file"), createPerk);
  */
 router.get("/", getPerks);
 
+// NOTE: the path was misspelled ("camapign") for a long time. Both spellings
+// are kept so nothing that already points at the old URL breaks.
+router.post("/:perkId/assign-to-campaign", assignPerkToCampaign)
 router.post("/:perkId/assign-to-camapign", assignPerkToCampaign)
 
 /**

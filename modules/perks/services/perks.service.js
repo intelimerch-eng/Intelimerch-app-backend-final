@@ -129,20 +129,35 @@ async function getPerksService(artistId, limit, skip) {
 }
 
 async function assignPerkToCampaignService(artistId, perkId, campaignId) {
-    await validateObjectId(campaignId, Campaigns, "campaign")
-    const campaign = await validateObjectId(perkId, Perks, "perk")
+    const campaign = await validateObjectId(campaignId, Campaigns, "campaign")
+    const perk = await validateObjectId(perkId, Perks, "perk")
 
-    if (campaign.artistId !== mongoose.Types.ObjectId(artistId)) {
-        const error = new Error("Campaign not found");
-        error.statusCode = 400;
+    // Both the campaign and the perk must belong to the calling artist.
+    // The previous version validated the perk while calling it "campaign" and
+    // then compared two ObjectId instances with !==, which is always true, so
+    // this endpoint rejected every request.
+    const artistObjectId = new mongoose.Types.ObjectId(artistId)
+
+    const campaignArtistId = campaign.artistId ? campaign.artistId.toString() : null
+    const perkArtistId = perk.artistId ? perk.artistId.toString() : null
+
+    if (
+        campaignArtistId !== artistObjectId.toString() ||
+        perkArtistId !== artistObjectId.toString()
+    ) {
+        const error = new Error("Campaign or perk not found");
+        error.statusCode = 404;
         throw error;
     }
 
-    const data = {
-        campaignId,
-        perkId
+    const alreadyLinked = await CampaignPerks.findOne({ campaignId, perkId })
+    if (alreadyLinked) {
+        const error = new Error("This perk is already linked to the campaign");
+        error.statusCode = 409;
+        throw error;
     }
-    const campaignPerk = await CampaignPerks.create(data)
+
+    const campaignPerk = await CampaignPerks.create({ campaignId, perkId })
 
     return campaignPerk
 }
