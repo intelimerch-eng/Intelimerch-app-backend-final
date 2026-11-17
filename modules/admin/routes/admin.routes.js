@@ -26,6 +26,28 @@ const { registerStaffSchema } = require("../../../validators/internalTeamValidat
 const { registerArtistSchema } = require("../../../validators/artistValidator")
 const validate = require("../../../middleware/validate")
 const { autheRoles } = require("../../../middleware/authRole.middleware")
+const ACCOUNT = require("../../../shared/constants/account")
+
+// Fan records contain personal data (name, email, phone), so reading them is
+// restricted to internal team accounts. Creator accounts must not reach this.
+const requireInternalTeam = (req, res, next) => {
+    const accountType = req.user?.accountType
+
+    const allowed = [
+        ACCOUNT.TYPE.INTERNAL_TEAM,
+        ACCOUNT.ROLE.ADMIN,
+        ACCOUNT.ROLE.SUPER_ADMIN,
+    ]
+
+    if (!allowed.includes(accountType)) {
+        return res.status(403).json({
+            success: false,
+            message: "permission denied"
+        })
+    }
+
+    return next()
+}
 
 // internal operations
 /**
@@ -322,7 +344,7 @@ router.get("/fans/:artistId", auth, fansList)
  *       500:
  *         description: Internal server error
  */
-router.get("/get-all-fans", getAllFans)
+router.get("/get-all-fans", auth, requireInternalTeam, getAllFans)
 
 router.get("/get-all-campaigns", auth, getAllCampaigns)
 
@@ -389,7 +411,7 @@ router.post("/create-perk-category", auth, autheRoles("admin"), createPerkCatego
  *       500:
  *         description: Internal server error occurred retrieving perk categories
  */
-router.get("/get-perks-categories", getPerksCategories)
+router.get("/get-perks-categories", auth, getPerksCategories)
 
 
 // on artist account

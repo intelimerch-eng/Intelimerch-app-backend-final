@@ -17,6 +17,7 @@ const createPerkService = async ({
     contentType,
     description,
     file,
+    linkUrl,
 }) => {
     let uploadedAsset;
 
@@ -43,6 +44,25 @@ const createPerkService = async ({
             throw error;
         }
 
+        // A link perk's payload is the URL itself, so there is nothing to
+        // upload and no file type to match.
+        if (contentType === "link") {
+            return await Perks.create({
+                artistId,
+                perkName,
+                perkCategoryId,
+                contentType,
+                fileUrl: linkUrl,
+                description,
+            });
+        }
+
+        if (!file) {
+            const error = new Error("A file is required.");
+            error.statusCode = 400;
+            throw error;
+        }
+
         const matchesContentType = {
             audio: file.mimetype.startsWith("audio/"),
             video: file.mimetype.startsWith("video/"),
@@ -56,7 +76,6 @@ const createPerkService = async ({
                 "text/plain",
                 "text/csv",
             ].includes(file.mimetype),
-            link: false,
         };
 
         if (!matchesContentType[contentType]) {

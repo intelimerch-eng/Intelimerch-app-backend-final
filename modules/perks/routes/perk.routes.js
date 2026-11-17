@@ -168,7 +168,7 @@ router.post("/:perkId/assign-to-camapign", assignPerkToCampaign)
  *       500:
  *         description: Internal server error occurred updating perk
  */
-router.patch("/:perkId", updatePerk);
+router.patch("/:perkId", upload.single("file"), updatePerk);
 
 /**
  * @swagger

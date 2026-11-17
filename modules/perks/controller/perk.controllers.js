@@ -6,6 +6,18 @@ const Campaigns = require("../../campaign/model/campaign.model")
 const CampaignPerks = require("../../campaign/model/campaignPerks.model")
 const { createPerkService, getPerksService, assignPerkToCampaignService } = require("../services/perks.service")
 const validateObjectId = require("../../../utils/objectIdValidators")
+const { uploadToCloudinary } = require("../../../services/cloudinaryService")
+
+
+// A link perk stores an http(s) URL as its payload instead of an upload.
+function isValidUrl(value) {
+    try {
+        const parsed = new URL(value);
+        return ["http:", "https:"].includes(parsed.protocol);
+    } catch {
+        return false;
+    }
+}
 
 
 
@@ -17,6 +29,8 @@ const createPerk = asyncHandler(async (req, res) => {
         perkCategoryId,
         contentType,
         description,
+        linkUrl,
+        fileUrl,
     } = req.body;
 
     if (!perkName || !perkCategoryId || !contentType) {
@@ -25,7 +39,24 @@ const createPerk = asyncHandler(async (req, res) => {
         throw error;
     }
 
-    if (!req.file) {
+    // A link perk carries its payload as a URL; every other content type is
+    // a real file and must be uploaded.
+    const isLinkPerk = String(contentType).toLowerCase() === "link";
+    const providedUrl = (linkUrl || fileUrl || "").trim();
+
+    if (isLinkPerk) {
+        if (!providedUrl) {
+            const error = new Error("A URL is required for a link perk.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        if (!isValidUrl(providedUrl)) {
+            const error = new Error("The link perk URL is not a valid URL.");
+            error.statusCode = 400;
+            throw error;
+        }
+    } else if (!req.file) {
         const error = new Error("A file is required.");
         error.statusCode = 400;
         throw error;
@@ -38,6 +69,7 @@ const createPerk = asyncHandler(async (req, res) => {
         contentType,
         description,
         file: req.file,
+        linkUrl: providedUrl,
     });
 
     return res.status(201).json({
@@ -107,14 +139,39 @@ const updatePerk = asyncHandler(async (req, res) => {
         "description",
     ];
 
+    const body = req.body || {};
+
     allowedFields.forEach((field) => {
-        if (req.body[field] !== undefined) {
-            perk[field] = req.body[field];
+        if (body[field] !== undefined) {
+            perk[field] = body[field];
         }
     });
 
-    if (req.file?.path) {
-        perk.fileUrl = req.file.path;
+    // Link perks keep their payload in the body; file-based perks accept a
+    // replacement upload through Cloudinary (multer uses memory storage, so
+    // there is no req.file.path to fall back on).
+    const providedLink = (body.linkUrl || body.fileUrl || "").trim();
+
+    if (perk.contentType === "link") {
+        if (!providedLink) {
+            const error = new Error("A URL is required for a link perk.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        if (!isValidUrl(providedLink)) {
+            const error = new Error("The link perk URL is not a valid URL.");
+            error.statusCode = 400;
+            throw error;
+        }
+
+        perk.fileUrl = providedLink;
+    } else if (req.file) {
+        const uploaded = await uploadToCloudinary(
+            req.file,
+            `intelimerch/perks/${artistId}`
+        );
+        perk.fileUrl = uploaded.url;
     }
 
     const updatedPerk = await perk.save();
