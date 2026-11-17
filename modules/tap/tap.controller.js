@@ -58,6 +58,10 @@ const tap = asyncHandler(async (req, res) => {
   const artistId = NFCTag.artistId || tag.artistId || NFCTag.campaignId;
   const campaignId = NFCTag.campaignId || tag.campaignId;
 
+  console.log(
+    `[tap] tagId=${tagId} nfcTagId=${NFCTag.tagId} status=${NFCTag.status} tagCampaignId=${campaignId} tapType=${tapType} requester=${requesterId || "anonymous"}`
+  );
+
   // ── Returning fan on a brand-new tag ───────────────────────────────
   // The device already holds a valid owner token, so we know which fan this
   // is. Instead of showing the activation form again, bind the tag to that
@@ -337,6 +341,10 @@ const getCampaignPageResources = asyncHandler(async (req, res) => {
     Campaigns.findById(campaignId).select("campaignName"),
     CampaignPages.findOne({ campaignId }),
   ]);
+
+  console.log(
+    `[fan] resources tagId=${tagId} nfcTagId=${tag.tagId} campaignId=${campaignId} campaign="${campaign?.campaignName || "?"}" perks=${campaignPageResources.length} [${campaignPageResources.map((r) => r.perkId?.perkName || "?").join(", ")}] hasPage=${Boolean(campaignPage)}`
+  );
 
   return res.status(200).json({
     success: true,
