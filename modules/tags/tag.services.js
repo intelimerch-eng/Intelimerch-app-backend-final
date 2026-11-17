@@ -30,7 +30,9 @@ async function generateTags(campaignId, productVariantId, tierId, quantity = 1, 
         })
     }
 
-    const tags = await Tags.create(tagData, { session })
+    // ordered: true is required by Mongoose when inserting several documents
+    // inside a transaction.
+    const tags = await Tags.create(tagData, { session, ordered: true })
     if (!tags || tags.length !== total) {
         const error = new Error("Error occured creating tag")
         error.statusCode = 500
