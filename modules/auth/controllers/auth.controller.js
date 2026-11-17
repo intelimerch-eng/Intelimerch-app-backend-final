@@ -38,7 +38,9 @@ function findAccountByEmail(email) {
     }
 
     return Accounts.findOne({
-        email: { $regex: `^${escapeRegex(normalised)}$`, $options: "i" },
+        // Tolerate surrounding whitespace as well as case, so rows written
+        // before the schema trimmed emails still resolve.
+        email: { $regex: `^\\s*${escapeRegex(normalised)}\\s*$`, $options: "i" },
     })
 }
 
