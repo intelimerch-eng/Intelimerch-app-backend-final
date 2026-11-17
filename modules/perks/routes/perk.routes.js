@@ -74,7 +74,18 @@ router.use(auth); // Apply authentication middleware to all routes in this route
  *       500:
  *         description: Internal server error occurred creating perk
  */
-router.post("/", upload.single("file"), createPerk);
+// Timing markers: this logs when the request reaches the server (before the
+// body is read), and createPerk logs again once multer has buffered the file,
+// so a slow upload can be attributed to the client->server transfer versus the
+// server->Cloudinary step.
+const logUploadArrival = (req, res, next) => {
+    console.log(
+        `[perks] POST received contentLength=${req.headers["content-length"] || "unknown"} type=${req.headers["content-type"] || "unknown"}`
+    );
+    next();
+};
+
+router.post("/", logUploadArrival, upload.single("file"), createPerk);
 
 /**
  * @swagger

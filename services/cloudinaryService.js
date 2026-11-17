@@ -24,6 +24,11 @@ const uploadToCloudinary = (file, folder = "intelimerch") => {
   }
 
   const resourceType = getResourceType(file.mimetype);
+  const startedAt = Date.now();
+
+  console.log(
+    `[cloudinary] upload start folder=${folder} type=${resourceType} mimetype=${file.mimetype} bytes=${file.buffer.length} name=${file.originalname}`
+  );
 
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
@@ -35,7 +40,18 @@ const uploadToCloudinary = (file, folder = "intelimerch") => {
         unique_filename: true,
       },
       (error, result) => {
-        if (error) return reject(error);
+        const elapsedMs = Date.now() - startedAt;
+
+        if (error) {
+          console.error(
+            `[cloudinary] upload FAILED after ${elapsedMs}ms: ${error.message || error}`
+          );
+          return reject(error);
+        }
+
+        console.log(
+          `[cloudinary] upload ok in ${elapsedMs}ms -> ${result.secure_url}`
+        );
 
         resolve({
           url: result.secure_url,
@@ -47,6 +63,12 @@ const uploadToCloudinary = (file, folder = "intelimerch") => {
         });
       }
     );
+
+    uploadStream.on("error", (streamError) => {
+      console.error(
+        `[cloudinary] upload stream error after ${Date.now() - startedAt}ms: ${streamError.message || streamError}`
+      );
+    });
 
     Readable.from(file.buffer).pipe(uploadStream);
   });

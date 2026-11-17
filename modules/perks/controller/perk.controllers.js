@@ -24,6 +24,10 @@ function isValidUrl(value) {
 const createPerk = asyncHandler(async (req, res) => {
     const artistId = req.user.accountId;
 
+    console.log(
+        `[perks] body parsed file=${req.file ? req.file.originalname : "none"} bytes=${req.file ? req.file.size : 0} mimetype=${req.file ? req.file.mimetype : "none"}`
+    );
+
     const {
         perkName,
         perkCategoryId,
