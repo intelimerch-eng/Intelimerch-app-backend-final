@@ -62,46 +62,14 @@ const tap = asyncHandler(async (req, res) => {
     `[tap] tagId=${tagId} nfcTagId=${NFCTag.tagId} status=${NFCTag.status} tagCampaignId=${campaignId} tapType=${tapType} requester=${requesterId || "anonymous"}`
   );
 
-  // ── Returning fan on a brand-new tag ───────────────────────────────
-  // The device already holds a valid owner token, so we know which fan this
-  // is. Instead of showing the activation form again, bind the tag to that
-  // fan immediately and send them straight to their perks.
-  if (!isNFCActivated && requesterId) {
-    const existingFan = await Fans.findById(requesterId);
-
-    if (existingFan) {
-      await activateTag(
-        tagId,
-        existingFan._id,
-        { country, state, city: suburb },
-        req.body.deviceType
-      );
-
-      await tapTag({
-        tagId,
-        ownerId: existingFan._id,
-        success: true,
-        deviceType: req.body.deviceType,
-        tapType: "subsequent",
-        location: { country, state, city: suburb },
-        artistId,
-        campaignId,
-      });
-
-      // activateTag already incremented the tag's tapCount.
-      await Campaigns.findByIdAndUpdate(campaignId, {
-        $inc: { tapCount: 1, scanCount: 1, claims: 1 },
-      });
-
-      const tapToken = await generateJWT({ tagId }, "tapToken");
-
-      return res.status(200).json({
-        success: true,
-        message: "Tap successful, welcome back!",
-        tapToken,
-      });
-    }
-  }
+  // NOTE: a fresh tap ALWAYS goes to the activation page, even when the device
+  // already holds a valid owner token. This is the agreed product model:
+  //   fresh      -> activation page
+  //   subsequent -> campaign page / perks (activated + owner matches)
+  //   illegal    -> claimed by another fan
+  // A returning fan is still handled correctly on activation, because
+  // ActivateMerch sends the ownerToken and activateMerch then reuses the
+  // existing fan instead of creating a duplicate.
 
   if (isNFCActivated && isOwnerValid) {
     const tapToken = await generateJWT({ tagId }, "tapToken");
