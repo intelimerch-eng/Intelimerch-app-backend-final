@@ -121,7 +121,10 @@ const artistFanDashboard = asyncHandler(async (req, res) => {
 
         {
             $lookup: {
-                from: "productvariants",
+                // Must match the collection Mongoose actually creates for the
+                // "product-variants" model. "productvariants" silently
+                // resolved to nothing, which nulled the whole chain below.
+                from: "product-variants",
                 localField: "productVariantId",
                 foreignField: "_id",
                 as: "variant",
@@ -151,7 +154,8 @@ const artistFanDashboard = asyncHandler(async (req, res) => {
 
         {
             $lookup: {
-                from: "producttypes",
+                // Same fix: the "product-types" model lives in "product-types".
+                from: "product-types",
                 localField: "product.productTypeId",
                 foreignField: "_id",
                 as: "productType",
